@@ -1,0 +1,115 @@
+for i in 607 611  659 688 739; do
+    for person in father mother child; do
+        echo "SCRIPT HAS STARTED FOR case${i} - ${person}"
+
+        cd /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}
+
+        # Step 1: Alignment
+        bowtie2 -U case${i}_${person}.fq.gz -x /home/BCG2025_genomics_exam/uni \
+            --rg-id "S_${person}" --rg "SM:${person}" \
+            | samtools view -Sb - > ${person}.bam
+
+        # Step 2: Sort BAM
+        samtools sort -o case${i}_${person}.bam ${person}.bam
+
+        # Step 3: Index BAM
+        samtools index case${i}_${person}.bam
+
+        # Step 4: FastQC
+        fastqc case${i}_${person}.fq.gz -o "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/fastqc_outputs"
+
+        # Step 5: Qualimap
+        qualimap bamqc -bam case${i}_${person}.bam \
+            -gff "/home/BCG2025_genomics_exam/exons16Padded_sorted.bed" \
+            -outdir "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/qualimap_outputs"
+
+        cd -  # Return to the previous directory
+    done
+done
+
+echo "MOVING TO MULTIQC"
+
+# ---------- 2. MultiQC ----------
+for i in 607 611  659 688 739; do
+    for person in father mother child; do
+        echo "Running MultiQC for case${i} - ${person}"
+        multiqc "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}" \
+            -o "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/multiqc_reports" \
+            -n "multiqc_report_case${i}_${person}.html"
+    done
+done
+
+echo "MOVING TO VARIANT CALLING"
+
+# ---------- 3. Freebayes Variant Calling ----------
+for i in 607 611  659 688 739; do
+    echo "Running FreeBayes for case${i}"
+    nohup freebayes -f /home/BCG2025_genomics_exam/universe.fasta \
+        -m 20 -C 5 -Q 10 --min-coverage 10 \
+        /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/child/case${i}_child.bam \
+        /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/father/case${i}_father.bam \
+        /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/mother/case${i}_mother.bam \
+        > /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.vcf &
+done
+wait  # Wait for all FreeBayes processes to finish
+
+echo "MOVING TO SORTING VCF"
+
+# ---------- 4. Sort VCF samples ----------
+for i in 607 611  659 688 739; do
+    # Sorting the sample order in the VCF file
+    bcftools query -l "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.vcf" | sort \
+        > "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.samples.txt"
+
+    # Reordering the VCF file based on the sorted sample order
+    bcftools view -S "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.samples.txt" \
+        "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.vcf" \
+        > "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.sorted.vcf"
+done
+
+echo "MOVING TO VARIANT SELECTION"
+
+# ---------- 5. Variant Selection (AR inheritance model) ----------
+for i in 607 611  659 688 739; do
+    # Keep VCF header
+    grep "^#" /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.sorted.vcf \
+        > /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/candilist${i}.vcf
+
+    # Append only AR model variants
+    grep "1/1.*0/1.*0/1" /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/case${i}.sorted.vcf \
+        >> /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/candilist${i}.vcf
+
+    # Filter with BED coordinates (target regions)
+    grep "^#" /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/candilist${i}.vcf \
+        > /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${i}candilistTG.vcf
+
+    bedtools intersect -a /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/candilist${i}.vcf \
+        -b /home/BCG2025_genomics_exam/exons16Padded_sorted.bed -u \
+        >> /home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${i}candilistTG.vcf
+done
+
+# ---------- 6. Generate Coverage Tracks ----------
+
+echo "I AM GENERATING COVERAGE TRACKS"
+
+for i in 607 611  659 688 739; do
+    for person in father mother child; do
+        echo "Generating coverage for case${i} - ${person}"
+
+        # Path to the BAM file
+        bam_file="/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/case${i}_${person}.bam"
+
+        # Path to the output coverage file
+        coverage_output="/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/${person}Cov${i}.bg"
+
+        # Generate the coverage file with bedtools genomecov
+        bedtools genomecov -ibam "${bam_file}" -bg -trackline -trackopts "name=\"${person}\"" -max 100 > "${coverage_output}"
+    done
+done
+
+echo "Coverage files generated for all individuals."
+
+
+
+
+echo "---- ALL ANALYSES COMPLETED ----"
