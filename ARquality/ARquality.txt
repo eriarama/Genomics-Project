@@ -1,0 +1,26 @@
+for i in 607 611 659 688 739; do
+    echo "STARTING CASE $i"
+
+    # FASTQC
+    for person in child mother father; do
+        fq_path="/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/case${i}_${person}.fq.gz"
+        fastqc_out="/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/fastqc"
+        mkdir -p "$fastqc_out"
+        fastqc "$fq_path" -o "$fastqc_out"
+    done
+
+    # QUALIMAP
+    for person in child mother father; do
+        bam_path="/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/${person}/case${i}_${person}.bam"
+        qualimap_out="/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/qualimap_outputs/case${i}_${person}"
+        mkdir -p "$qualimap_out"
+        qualimap bamqc -bam "$bam_path" \
+                       -gff /home/BCG2025_genomics_exam/exons16Padded_sorted.bed \
+                       -outdir "$qualimap_out"
+    done
+
+    # MULTIQC
+    multiqc "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}" \
+        -o "/home/BCG2025_palamariuMA/PROGETTO_ME/AR/case${i}/multiqc_reports" \
+        -n "multiqc_report_case${i}.html"
+done
